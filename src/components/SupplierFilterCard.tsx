@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SupplierSummary } from "@/types/qogita";
-import { Building2, AlertTriangle, CheckCircle2, ShoppingBag, ArrowRight } from "lucide-react";
+import { Building2, AlertTriangle, CheckCircle2, Search, ChevronDown, X, Check } from "lucide-react";
 
 interface SupplierFilterCardProps {
   suppliers: SupplierSummary[];
@@ -11,18 +11,59 @@ interface SupplierFilterCardProps {
   orderTotal: number;
 }
 
+const MAX_VISIBLE_RESULTS = 200;
+
+export const formatUsd = (value: number, fractionDigits = 2) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(Number(value) || 0);
+
 export const SupplierFilterCard: React.FC<SupplierFilterCardProps> = ({
   suppliers,
   selectedSupplier,
   onSelectSupplier,
   orderTotal,
 }) => {
+  const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Close the dropdown when clicking outside of it
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const filteredSuppliers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return suppliers;
+    return suppliers.filter(
+      (s) =>
+        s.supplierAllocationId.toLowerCase().includes(q) ||
+        s.brands?.some((b) => b?.toLowerCase().includes(q))
+    );
+  }, [suppliers, query]);
+
+  const handleSelect = (id: string) => {
+    onSelectSupplier(id);
+    setQuery("");
+    setIsOpen(false);
+  };
+
   const current = suppliers.find(
     (s) => s.supplierAllocationId === selectedSupplier
   );
 
   const mov = current ? Number(current.mov) || 0 : 0;
-  const currency = current ? current.currency : "EUR";
   const progressPercent = mov > 0 ? Math.min(100, Math.round((orderTotal / mov) * 100)) : 100;
   const isMovMet = orderTotal >= mov;
   const remainingAmount = Math.max(0, mov - orderTotal);
@@ -36,69 +77,131 @@ export const SupplierFilterCard: React.FC<SupplierFilterCardProps> = ({
             <h2 className="text-base font-semibold text-slate-900">
               Filter by Supplier Allocation ID
             </h2>
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              {suppliers.length.toLocaleString()} allocations
+            </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Select a Supplier Allocation ID to isolate products and check order readiness against their Minimum Order Value (MOV).
+            Search any Supplier Allocation ID (or brand) to isolate products and check order readiness against their Minimum Order Value (MOV). All amounts shown in USD.
           </p>
         </div>
 
-        {/* Supplier Dropdown */}
-        <div className="flex items-center gap-2">
-          <label htmlFor="supplier-select" className="text-xs font-medium text-slate-600 whitespace-nowrap">
-            Active Allocation:
-          </label>
-          <select
-            id="supplier-select"
-            value={selectedSupplier}
-            onChange={(e) => onSelectSupplier(e.target.value)}
-            className="text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-          >
-            <option value="ALL">All Suppliers (Full Catalog)</option>
-            {suppliers.map((s) => (
-              <option key={s.supplierAllocationId} value={s.supplierAllocationId}>
-                {s.supplierAllocationId} — Min: {s.currency} {Number(s.mov || 0).toFixed(0)} ({s.productCount} items)
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Supplier Pill Chips for fast switching */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 no-scrollbar">
-        <button
-          onClick={() => onSelectSupplier("ALL")}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all ${
-            selectedSupplier === "ALL"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          }`}
-        >
-          All Allocations
-        </button>
-
-        {suppliers.map((s) => {
-          const isSelected = selectedSupplier === s.supplierAllocationId;
-          return (
-            <button
-              key={s.supplierAllocationId}
-              onClick={() => onSelectSupplier(s.supplierAllocationId)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all border flex items-center gap-1.5 ${
-                isSelected
-                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-100"
-                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              <span className="font-mono">{s.supplierAllocationId}</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded ${
-                  isSelected ? "bg-indigo-700 text-indigo-100" : "bg-slate-100 text-slate-500"
+        {/* Searchable Supplier Picker */}
+        <div ref={containerRef} className="relative w-full md:w-96">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                ref={inputRef}
+                id="supplier-search"
+                type="text"
+                autoComplete="off"
+                role="combobox"
+                aria-expanded={isOpen}
+                aria-controls="supplier-listbox"
+                placeholder={
+                  selectedSupplier === "ALL"
+                    ? "Search Supplier Allocation ID..."
+                    : selectedSupplier
+                }
+                value={query}
+                onFocus={() => setIsOpen(true)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setIsOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setIsOpen(false);
+                  if (e.key === "Enter") {
+                    const q = query.trim();
+                    const exact = suppliers.find(
+                      (s) => s.supplierAllocationId.toLowerCase() === q.toLowerCase()
+                    );
+                    if (exact) handleSelect(exact.supplierAllocationId);
+                    else if (filteredSuppliers.length === 1)
+                      handleSelect(filteredSuppliers[0].supplierAllocationId);
+                  }
+                }}
+                className={`w-full pl-9 pr-8 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 ${
+                  selectedSupplier !== "ALL" ? "placeholder-slate-800 font-mono" : "placeholder-slate-400"
                 }`}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen((o) => !o);
+                  inputRef.current?.focus();
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                aria-label="Toggle supplier list"
               >
-                MOV: {s.currency} {Number(s.mov || 0).toFixed(0)}
-              </span>
-            </button>
-          );
-        })}
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+            {selectedSupplier !== "ALL" && (
+              <button
+                type="button"
+                onClick={() => handleSelect("ALL")}
+                className="flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 whitespace-nowrap"
+                title="Clear supplier filter"
+              >
+                <X className="w-3.5 h-3.5" /> Clear
+              </button>
+            )}
+          </div>
+
+          {isOpen && (
+            <ul
+              id="supplier-listbox"
+              role="listbox"
+              className="absolute z-20 mt-1 w-full max-h-80 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-xs"
+            >
+              <li
+                role="option"
+                aria-selected={selectedSupplier === "ALL"}
+                onClick={() => handleSelect("ALL")}
+                className="px-3 py-2 cursor-pointer hover:bg-slate-50 flex items-center justify-between font-medium text-slate-700"
+              >
+                All Suppliers (Full Catalog)
+                {selectedSupplier === "ALL" && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+              </li>
+              {filteredSuppliers.slice(0, MAX_VISIBLE_RESULTS).map((s) => {
+                const isSelected = selectedSupplier === s.supplierAllocationId;
+                return (
+                  <li
+                    key={s.supplierAllocationId}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => handleSelect(s.supplierAllocationId)}
+                    className={`px-3 py-2 cursor-pointer flex items-center justify-between gap-2 ${
+                      isSelected ? "bg-indigo-50" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="font-mono font-semibold text-slate-800 truncate">
+                      {s.supplierAllocationId}
+                    </span>
+                    <span className="flex items-center gap-2 text-[11px] text-slate-500 whitespace-nowrap">
+                      <span>MOV {formatUsd(s.mov, 0)}</span>
+                      <span className="text-slate-300">•</span>
+                      <span>{s.productCount} items</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                    </span>
+                  </li>
+                );
+              })}
+              {filteredSuppliers.length === 0 && (
+                <li className="px-3 py-3 text-slate-500 text-center">
+                  No Supplier Allocation ID matches &quot;{query}&quot;
+                </li>
+              )}
+              {filteredSuppliers.length > MAX_VISIBLE_RESULTS && (
+                <li className="px-3 py-2 text-[11px] text-slate-400 text-center border-t border-slate-100">
+                  Showing first {MAX_VISIBLE_RESULTS} of {filteredSuppliers.length.toLocaleString()} — keep typing to narrow down
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* When a specific supplier is selected, display their MOV Target Card & Cart Simulator */}
@@ -109,7 +212,7 @@ export const SupplierFilterCard: React.FC<SupplierFilterCardProps> = ({
               Supplier Minimum Order Value (MOV / MNQ)
             </div>
             <div className="text-2xl font-black text-slate-900 mt-1">
-              {currency} {mov.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {formatUsd(mov)}
             </div>
             <div className="text-xs text-slate-500 mt-1">
               {current.productCount} catalog products available from this supplier
@@ -121,7 +224,7 @@ export const SupplierFilterCard: React.FC<SupplierFilterCardProps> = ({
               Current Simulated Order Value
             </div>
             <div className="text-2xl font-black text-indigo-600 mt-1">
-              {currency} {orderTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {formatUsd(orderTotal)}
             </div>
             <div className="text-xs text-slate-500 mt-1">
               Add products below using the quantity selector
@@ -150,7 +253,7 @@ export const SupplierFilterCard: React.FC<SupplierFilterCardProps> = ({
               <div className="text-xs mt-1">
                 {isMovMet
                   ? `Ready to order! You meet ${current.supplierAllocationId}'s minimum requirement.`
-                  : `Need ${currency} ${remainingAmount.toFixed(2)} more to place order with this supplier.`}
+                  : `Need ${formatUsd(remainingAmount)} more to place order with this supplier.`}
               </div>
             </div>
 

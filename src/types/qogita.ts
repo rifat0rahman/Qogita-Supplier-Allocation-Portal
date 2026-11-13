@@ -15,6 +15,8 @@ export interface SupplierOffer {
   category: string;
   price: number;                // Cost by supplier
   currency: string;
+  originalPrice?: number;       // Price in the supplier's source currency (before USD conversion)
+  originalCurrency?: string;
   inventory: number;            // Units in stock
   mov: number;                  // Minimum Order Value ($$) per supplier order
   movCurrency: string;

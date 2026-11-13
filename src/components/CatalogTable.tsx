@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { SupplierOffer } from "@/types/qogita";
-import { Search, Filter, Copy, Check, ExternalLink, Plus, Minus } from "lucide-react";
+import { Search, Filter, Copy, Check, Plus, Minus } from "lucide-react";
+import { formatUsd } from "./SupplierFilterCard";
 
 interface CatalogTableProps {
   offers: SupplierOffer[];
@@ -81,11 +82,11 @@ export const CatalogTable: React.FC<CatalogTableProps> = ({
           <thead>
             <tr className="bg-slate-50/75 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
               <th className="py-3 px-4">Supplier Allocation ID</th>
-              <th className="py-3 px-4">Supplier MOV ($$)</th>
+              <th className="py-3 px-4">Supplier MOV (USD)</th>
               <th className="py-3 px-4">GTIN / UPC</th>
               <th className="py-3 px-4">Brand</th>
               <th className="py-3 px-4">Product Description</th>
-              <th className="py-3 px-4 text-right">Supplier Cost</th>
+              <th className="py-3 px-4 text-right">Supplier Cost (USD)</th>
               <th className="py-3 px-4 text-center">Stock</th>
               <th className="py-3 px-4 text-center">Simulate Order</th>
             </tr>
@@ -118,8 +119,7 @@ export const CatalogTable: React.FC<CatalogTableProps> = ({
 
                     {/* Minimum Order Amount (MOV) Column */}
                     <td className="py-3 px-4 whitespace-nowrap font-medium text-slate-700">
-                      <span className="text-slate-400 font-normal mr-1">{item.movCurrency || item.currency}</span>
-                      {Number(item.mov || 0).toFixed(0)}
+                      {formatUsd(item.mov, 0)}
                     </td>
 
                     {/* GTIN / UPC */}
@@ -156,9 +156,15 @@ export const CatalogTable: React.FC<CatalogTableProps> = ({
                     </td>
 
                     {/* Cost by Supplier */}
-                    <td className="py-3 px-4 text-right whitespace-nowrap font-bold text-slate-900">
-                      <span className="text-xs font-normal text-slate-400 mr-1">{item.currency}</span>
-                      {Number(item.price || 0).toFixed(2)}
+                    <td
+                      className="py-3 px-4 text-right whitespace-nowrap font-bold text-slate-900"
+                      title={
+                        item.originalCurrency && item.originalCurrency !== "USD"
+                          ? `Original: ${item.originalCurrency} ${Number(item.originalPrice || 0).toFixed(2)}`
+                          : undefined
+                      }
+                    >
+                      {formatUsd(item.price)}
                     </td>
 
                     {/* Inventory */}

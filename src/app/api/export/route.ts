@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllOffersForExport } from "@/lib/catalogStorage";
 import { exportOffersToCsv } from "@/lib/csvHelper";
+import { getUsdRates, offerToUsd } from "@/lib/currency";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const supplierAllocationId = searchParams.get("supplierAllocationId") || undefined;
 
-    const offers = await getAllOffersForExport(supplierAllocationId);
+    const [rawOffers, rates] = await Promise.all([
+      getAllOffersForExport(supplierAllocationId),
+      getUsdRates(),
+    ]);
+    const offers = rawOffers.map((o) => offerToUsd(o, rates));
     const csvContent = exportOffersToCsv(offers);
 
     const filename = supplierAllocationId && supplierAllocationId !== "ALL"

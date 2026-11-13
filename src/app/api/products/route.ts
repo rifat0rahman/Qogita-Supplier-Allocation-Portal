@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOffers, getStats } from "@/lib/catalogStorage";
+import { getUsdRates, offerToUsd } from "@/lib/currency";
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,10 +32,12 @@ export async function GET(req: NextRequest) {
     });
 
     const stats = await getStats();
+    const rates = await getUsdRates();
 
     return NextResponse.json({
       success: true,
       ...data,
+      results: data.results.map((o) => offerToUsd(o, rates)),
       stats,
     });
   } catch (error) {

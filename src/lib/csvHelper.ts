@@ -31,7 +31,7 @@ export function exportOffersToCsv(offers: SupplierOffer[]): string {
   const rows = offers.map((offer) => [
     escapeCsv(offer.supplierAllocationId),
     escapeCsv(Number(offer.mov || 0).toFixed(2)),
-    escapeCsv(offer.currency || offer.movCurrency || "EUR"),
+    escapeCsv(offer.currency || offer.movCurrency || "USD"),
     escapeCsv(Number(offer.price || 0).toFixed(2)),
     escapeCsv(offer.gtin),
     escapeCsv(offer.brand),

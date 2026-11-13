@@ -69,6 +69,8 @@ export async function POST(req: NextRequest) {
         mov = movMap[supplierAllocationId] || 1000;
       }
 
+      const fileCurrency = (getVal("currency", "price currency") || "USD").toUpperCase().slice(0, 3);
+
       return {
         offerQid: `off_imported_${gtin}_${supplierAllocationId}`,
         supplierAllocationId,
@@ -78,10 +80,10 @@ export async function POST(req: NextRequest) {
         brand,
         category,
         price,
-        currency: "EUR",
+        currency: fileCurrency,
         inventory,
         mov,
-        movCurrency: "EUR",
+        movCurrency: fileCurrency,
         updatedAt: new Date().toISOString(),
       };
     });

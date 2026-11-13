@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSuppliersSummary } from "@/lib/catalogStorage";
+import { getUsdRates, supplierToUsd } from "@/lib/currency";
 
 export async function GET() {
   try {
-    const suppliers = await getSuppliersSummary();
+    const [suppliers, rates] = await Promise.all([getSuppliersSummary(), getUsdRates()]);
     return NextResponse.json({
       success: true,
-      suppliers,
+      suppliers: suppliers.map((s) => supplierToUsd(s, rates)),
     });
   } catch (error) {
     console.error("GET /api/suppliers error:", error);

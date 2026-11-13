@@ -79,10 +79,43 @@ function saveLocalCache() {
 // Initial load of local cache
 loadLocalCache();
 
+const SAMPLE_SUPPLIER_IDS = new Set([
+  "SUP-AL-1084",
+  "SUP-AL-2041",
+  "SUP-AL-3920",
+  "SUP-AL-4105",
+  "SUP-AL-5512",
+]);
+
 export async function upsertOffers(offers: SupplierOffer[]): Promise<number> {
   const normalizedOffers = offers.map(normalizeOffer);
+
+  // Track which GTINs now have real supplier allocation IDs
+  const gtinsWithRealSupplier = new Set<string>();
+  for (const o of normalizedOffers) {
+    if (
+      o.supplierAllocationId &&
+      o.supplierAllocationId !== "DEFAULT_ALLOCATION" &&
+      !SAMPLE_SUPPLIER_IDS.has(o.supplierAllocationId)
+    ) {
+      gtinsWithRealSupplier.add(o.gtin);
+    }
+  }
+
   const db = await connectToDatabase();
   if (db) {
+    if (gtinsWithRealSupplier.size > 0) {
+      await CatalogItem.deleteMany({
+        $or: [
+          { supplierAllocationId: { $in: Array.from(SAMPLE_SUPPLIER_IDS) } },
+          {
+            supplierAllocationId: "DEFAULT_ALLOCATION",
+            gtin: { $in: Array.from(gtinsWithRealSupplier) },
+          },
+        ],
+      });
+    }
+
     const bulkOps = normalizedOffers.map((offer) => ({
       updateOne: {
         filter: { offerQid: offer.offerQid },
@@ -93,6 +126,19 @@ export async function upsertOffers(offers: SupplierOffer[]): Promise<number> {
 
     if (bulkOps.length > 0) {
       await CatalogItem.bulkWrite(bulkOps);
+    }
+  }
+
+  // Remove sample rows and superseded DEFAULT_ALLOCATION entries from local cache
+  if (gtinsWithRealSupplier.size > 0) {
+    for (const [key, existing] of memoryOffers.entries()) {
+      if (
+        SAMPLE_SUPPLIER_IDS.has(existing.supplierAllocationId) ||
+        (existing.supplierAllocationId === "DEFAULT_ALLOCATION" &&
+          gtinsWithRealSupplier.has(existing.gtin))
+      ) {
+        memoryOffers.delete(key);
+      }
     }
   }
 
@@ -144,7 +190,12 @@ export async function getOffers(filter: GetOffersFilter) {
     }
     if (search) {
       const regex = new RegExp(search, "i");
-      query.$or = [{ productName: regex }, { gtin: regex }, { brand: regex }];
+      query.$or = [
+        { productName: regex },
+        { gtin: regex },
+        { brand: regex },
+        { supplierAllocationId: regex },
+      ];
     }
 
     const total = await CatalogItem.countDocuments(query);
@@ -190,7 +241,8 @@ export async function getOffers(filter: GetOffersFilter) {
       (item) =>
         item.productName.toLowerCase().includes(s) ||
         item.gtin.toLowerCase().includes(s) ||
-        item.brand.toLowerCase().includes(s)
+        item.brand.toLowerCase().includes(s) ||
+        item.supplierAllocationId.toLowerCase().includes(s)
     );
   }
 
