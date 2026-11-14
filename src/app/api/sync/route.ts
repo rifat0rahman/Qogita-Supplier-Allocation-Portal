@@ -3,7 +3,12 @@ import { QogitaApiClient, QogitaV1Offer } from "@/lib/qogitaApi";
 import { upsertOffers } from "@/lib/catalogStorage";
 import { SupplierOffer } from "@/types/qogita";
 
-function mapV1OfferToSupplierOffer(
+function toMajorUnits(minorAmount: unknown): number {
+  const num = parseFloat(String(minorAmount ?? 0)) || 0;
+  return Math.round(num) / 100;
+}
+
+function mapV1OfferToSupplierOffers(
   off: QogitaV1Offer,
   prod: {
     gtin: string;
@@ -15,50 +20,65 @@ function mapV1OfferToSupplierOffer(
     price?: { amount: number; currency: string };
     inventory?: number;
   }
-): SupplierOffer {
-  const baseTier = off.tier_prices?.[0];
-  const rawPrice =
-    baseTier?.unit_price?.amount ?? prod.price?.amount ?? 0;
-  const price = parseFloat(String(rawPrice)) || 0;
-  const currency =
-    baseTier?.unit_price?.currency ??
-    off.minimum_order_value?.currency ??
-    prod.price?.currency ??
-    "USD";
-
-  const rawMov =
-    off.minimum_order_value?.amount ?? baseTier?.mov?.amount ?? 0;
-  const mov = parseFloat(String(rawMov)) || 0;
-  const movCurrency =
-    off.minimum_order_value?.currency ??
-    baseTier?.mov?.currency ??
-    currency;
-
+): SupplierOffer[] {
   const rawInventory = off.inventory ?? prod.inventory ?? 0;
   const inventory = parseInt(String(rawInventory), 10) || 0;
   const supplierId = off.supplier || "UNKNOWN_SUPPLIER";
+  const delivery =
+    off.estimated_delivery_weeks != null
+      ? `${off.estimated_delivery_weeks} weeks`
+      : undefined;
 
-  return {
-    offerQid: `off_${prod.gtin}_${supplierId}_${off.unit_size || 1}`,
-    supplierAllocationId: supplierId,
-    supplierAlias: `Supplier #${supplierId}`,
-    gtin: prod.gtin,
-    productName: prod.name,
-    brand: prod.brand,
-    category: prod.category,
-    price,
-    currency,
-    inventory,
-    mov,
-    movCurrency,
-    estimatedDeliveryTime:
-      off.estimated_delivery_weeks !== undefined
-        ? `${off.estimated_delivery_weeks} weeks`
-        : undefined,
-    productUrl: prod.productUrl,
-    imageUrl: prod.imageUrl,
-    updatedAt: new Date().toISOString(),
-  };
+  const tiers =
+    off.tier_prices && off.tier_prices.length > 0
+      ? off.tier_prices
+      : [
+          {
+            mov: off.minimum_order_value || { amount: 0, currency: "USD" },
+            unit_price: {
+              amount: (prod.price?.amount || 0) * 100,
+              currency: prod.price?.currency || "USD",
+            },
+          },
+        ];
+
+  return tiers.map((tier, idx) => {
+    const price = toMajorUnits(tier.unit_price?.amount);
+    const currency =
+      tier.unit_price?.currency ??
+      off.minimum_order_value?.currency ??
+      prod.price?.currency ??
+      "USD";
+
+    const movMinor =
+      tier.mov?.amount && tier.mov.amount > 0
+        ? tier.mov.amount
+        : off.minimum_order_value?.amount ?? 0;
+    const mov = toMajorUnits(movMinor);
+    const movCurrency =
+      tier.mov?.currency ?? off.minimum_order_value?.currency ?? currency;
+
+    const suffix = tiers.length > 1 ? `_t${idx}_${mov}` : "";
+
+    return {
+      offerQid: `off_${prod.gtin}_${supplierId}_${off.unit_size || 1}${suffix}`,
+      supplierAllocationId: supplierId,
+      supplierAlias: `Supplier #${supplierId}`,
+      gtin: prod.gtin,
+      productName: prod.name,
+      brand: prod.brand,
+      category: prod.category,
+      price,
+      currency,
+      inventory,
+      mov,
+      movCurrency,
+      estimatedDeliveryTime: delivery,
+      productUrl: prod.productUrl,
+      imageUrl: prod.imageUrl,
+      updatedAt: new Date().toISOString(),
+    };
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -130,9 +150,10 @@ export async function POST(req: NextRequest) {
               const v1Offers = await client.getProductOffersV1(prod.gtin);
               if (v1Offers.length > 0) {
                 for (const off of v1Offers) {
-                  const mapped = mapV1OfferToSupplierOffer(off, prod);
-                  offersToInsert.push(mapped);
-                  uniqueSupplierIds.add(mapped.supplierAllocationId);
+                  for (const mapped of mapV1OfferToSupplierOffers(off, prod)) {
+                    offersToInsert.push(mapped);
+                    uniqueSupplierIds.add(mapped.supplierAllocationId);
+                  }
                 }
                 return;
               }
@@ -147,12 +168,13 @@ export async function POST(req: NextRequest) {
             try {
               const prodV1 = await client.getProductV1(prod.gtin);
               if (prodV1?.cheapest_offer) {
-                const mapped = mapV1OfferToSupplierOffer(
+                for (const mapped of mapV1OfferToSupplierOffers(
                   prodV1.cheapest_offer,
                   prod
-                );
-                offersToInsert.push(mapped);
-                uniqueSupplierIds.add(mapped.supplierAllocationId);
+                )) {
+                  offersToInsert.push(mapped);
+                  uniqueSupplierIds.add(mapped.supplierAllocationId);
+                }
                 return;
               }
             } catch {

@@ -67,9 +67,20 @@ export function supplierToUsd(
   rates: Record<string, number>
 ): SupplierSummary {
   const r = rateFor(supplier.currency, rates);
+  const convertedMov = round2((Number(supplier.mov) || 0) * r);
+  const convertedMovs = Array.from(
+    new Set(
+      (supplier.movs && supplier.movs.length > 0
+        ? supplier.movs
+        : [supplier.mov]
+      ).map((m) => Math.round((Number(m) || 0) * r))
+    )
+  ).sort((a, b) => a - b);
+
   return {
     ...supplier,
-    mov: round2((Number(supplier.mov) || 0) * r),
+    mov: convertedMov,
+    movs: convertedMovs,
     minPrice: round2((Number(supplier.minPrice) || 0) * r),
     maxPrice: round2((Number(supplier.maxPrice) || 0) * r),
     currency: DISPLAY_CURRENCY,

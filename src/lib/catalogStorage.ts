@@ -9,14 +9,13 @@ const CACHE_FILE = path.join(DATA_DIR, "catalog.json");
 
 // In-memory fallback
 let memoryOffers: Map<string, SupplierOffer> = new Map();
+let lastLoadedMtimeMs = 0;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 }
-
-import { SAMPLE_OFFERS } from "./sampleData";
 
 function normalizeOffer(offer: Partial<SupplierOffer>): SupplierOffer {
   return {
@@ -36,34 +35,30 @@ function normalizeOffer(offer: Partial<SupplierOffer>): SupplierOffer {
   } as SupplierOffer;
 }
 
-function loadLocalCache() {
+function loadLocalCache(force = false) {
   ensureDataDir();
   if (fs.existsSync(CACHE_FILE)) {
     try {
+      const stat = fs.statSync(CACHE_FILE);
+      if (!force && lastLoadedMtimeMs > 0 && stat.mtimeMs === lastLoadedMtimeMs) {
+        return;
+      }
       const raw = fs.readFileSync(CACHE_FILE, "utf-8");
       const list: SupplierOffer[] = JSON.parse(raw);
-      if (list && list.length > 0) {
+      if (Array.isArray(list)) {
         memoryOffers = new Map(
           list.map((item) => {
             const normalized = normalizeOffer(item);
             return [normalized.offerQid, normalized];
           })
         );
+        lastLoadedMtimeMs = stat.mtimeMs;
         return;
       }
     } catch (e) {
       console.error("Error loading local catalog cache:", e);
     }
   }
-
-  // Seed default sample data so app is immediately visual and functional
-  memoryOffers = new Map(
-    SAMPLE_OFFERS.map((item) => {
-      const normalized = normalizeOffer(item);
-      return [normalized.offerQid, normalized];
-    })
-  );
-  saveLocalCache();
 }
 
 function saveLocalCache() {
@@ -71,13 +66,15 @@ function saveLocalCache() {
   try {
     const list = Array.from(memoryOffers.values());
     fs.writeFileSync(CACHE_FILE, JSON.stringify(list, null, 2), "utf-8");
+    const stat = fs.statSync(CACHE_FILE);
+    lastLoadedMtimeMs = stat.mtimeMs;
   } catch (e) {
     console.error("Error saving local catalog cache:", e);
   }
 }
 
 // Initial load of local cache
-loadLocalCache();
+loadLocalCache(true);
 
 const SAMPLE_SUPPLIER_IDS = new Set([
   "SUP-AL-1084",
@@ -87,7 +84,17 @@ const SAMPLE_SUPPLIER_IDS = new Set([
   "SUP-AL-5512",
 ]);
 
+export async function clearAllOffers(): Promise<void> {
+  const db = await connectToDatabase();
+  if (db) {
+    await CatalogItem.deleteMany({});
+  }
+  memoryOffers.clear();
+  saveLocalCache();
+}
+
 export async function upsertOffers(offers: SupplierOffer[]): Promise<number> {
+  loadLocalCache();
   const normalizedOffers = offers.map(normalizeOffer);
 
   // Track which GTINs now have real supplier allocation IDs
@@ -153,6 +160,7 @@ export async function upsertOffers(offers: SupplierOffer[]): Promise<number> {
 
 export interface GetOffersFilter {
   supplierAllocationId?: string;
+  mov?: number;
   brand?: string;
   search?: string;
   minPrice?: number;
@@ -164,6 +172,7 @@ export interface GetOffersFilter {
 export async function getOffers(filter: GetOffersFilter) {
   const {
     supplierAllocationId,
+    mov,
     brand,
     search,
     minPrice,
@@ -179,6 +188,9 @@ export async function getOffers(filter: GetOffersFilter) {
     const query: any = {};
     if (supplierAllocationId && supplierAllocationId !== "ALL") {
       query.supplierAllocationId = supplierAllocationId;
+    }
+    if (mov !== undefined && !isNaN(mov) && mov > 0) {
+      query.mov = mov;
     }
     if (brand && brand !== "ALL") {
       query.brand = brand;
@@ -221,6 +233,10 @@ export async function getOffers(filter: GetOffersFilter) {
     items = items.filter(
       (item) => item.supplierAllocationId === supplierAllocationId
     );
+  }
+
+  if (mov !== undefined && !isNaN(mov) && mov > 0) {
+    items = items.filter((item) => Math.round(item.mov) === Math.round(mov));
   }
 
   if (brand && brand !== "ALL") {
@@ -267,7 +283,8 @@ export async function getSuppliersSummary(): Promise<SupplierSummary[]> {
       {
         $group: {
           _id: "$supplierAllocationId",
-          mov: { $first: "$mov" },
+          mov: { $min: "$mov" },
+          movs: { $addToSet: "$mov" },
           currency: { $first: "$movCurrency" },
           productCount: { $sum: 1 },
           brands: { $addToSet: "$brand" },
@@ -280,6 +297,7 @@ export async function getSuppliersSummary(): Promise<SupplierSummary[]> {
         $project: {
           supplierAllocationId: "$_id",
           mov: 1,
+          movs: 1,
           currency: 1,
           productCount: 1,
           brands: 1,
@@ -303,7 +321,8 @@ export async function getSuppliersSummary(): Promise<SupplierSummary[]> {
       map.set(sid, {
         supplierAllocationId: sid,
         mov: item.mov,
-        currency: item.movCurrency || item.currency || "EUR",
+        movs: [item.mov],
+        currency: item.movCurrency || item.currency || "USD",
         productCount: 0,
         brands: [],
         totalInventory: 0,
@@ -315,6 +334,11 @@ export async function getSuppliersSummary(): Promise<SupplierSummary[]> {
     const s = map.get(sid)!;
     s.productCount += 1;
     s.totalInventory += item.inventory || 0;
+    s.mov = Math.min(s.mov, item.mov);
+    if (s.movs && !s.movs.includes(item.mov)) {
+      s.movs.push(item.mov);
+      s.movs.sort((a, b) => a - b);
+    }
     if (!s.brands.includes(item.brand)) {
       s.brands.push(item.brand);
     }
@@ -328,13 +352,17 @@ export async function getSuppliersSummary(): Promise<SupplierSummary[]> {
 }
 
 export async function getAllOffersForExport(
-  supplierAllocationId?: string
+  supplierAllocationId?: string,
+  mov?: number
 ): Promise<SupplierOffer[]> {
   const db = await connectToDatabase();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const query: any = {};
   if (supplierAllocationId && supplierAllocationId !== "ALL") {
     query.supplierAllocationId = supplierAllocationId;
+  }
+  if (mov !== undefined && !isNaN(mov) && mov > 0) {
+    query.mov = mov;
   }
 
   if (db) {
@@ -343,11 +371,16 @@ export async function getAllOffersForExport(
       .lean()) as unknown as SupplierOffer[];
   }
 
+  loadLocalCache();
   let items = Array.from(memoryOffers.values());
   if (supplierAllocationId && supplierAllocationId !== "ALL") {
     items = items.filter(
       (item) => item.supplierAllocationId === supplierAllocationId
     );
+  }
+
+  if (mov !== undefined && !isNaN(mov) && mov > 0) {
+    items = items.filter((item) => Math.round(item.mov) === Math.round(mov));
   }
   return items.sort((a, b) => {
     if (a.supplierAllocationId !== b.supplierAllocationId) {

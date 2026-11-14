@@ -30,6 +30,7 @@ export interface SupplierOffer {
 export interface SupplierSummary {
   supplierAllocationId: string;
   mov: number;
+  movs?: number[];
   currency: string;
   productCount: number;
   brands: string[];

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOffers, getStats } from "@/lib/catalogStorage";
+import { getOffers, getStats, clearAllOffers } from "@/lib/catalogStorage";
 import { getUsdRates, offerToUsd } from "@/lib/currency";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const supplierAllocationId = searchParams.get("supplierAllocationId") || undefined;
+    const movParam = searchParams.get("mov");
+    const mov =
+      movParam && movParam !== "ALL" ? parseFloat(movParam) : undefined;
     const brand = searchParams.get("brand") || undefined;
     const search = searchParams.get("search") || undefined;
     const minPrice = searchParams.get("minPrice")
@@ -23,6 +26,7 @@ export async function GET(req: NextRequest) {
 
     const data = await getOffers({
       supplierAllocationId,
+      mov,
       brand,
       search,
       minPrice,
@@ -46,6 +50,25 @@ export async function GET(req: NextRequest) {
       {
         success: false,
         error: error instanceof Error ? error.message : "Internal server error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    await clearAllOffers();
+    return NextResponse.json({
+      success: true,
+      message: "All catalog data cleared",
+    });
+  } catch (error) {
+    console.error("DELETE /api/products error:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to clear catalog data",
       },
       { status: 500 }
     );

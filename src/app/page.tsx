@@ -20,6 +20,7 @@ export default function Home() {
   });
 
   const [selectedSupplier, setSelectedSupplier] = useState<string>("ALL");
+  const [selectedMov, setSelectedMov] = useState<string>("ALL");
   const [selectedBrand, setSelectedBrand] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -54,6 +55,9 @@ export default function Home() {
       if (selectedSupplier && selectedSupplier !== "ALL") {
         params.append("supplierAllocationId", selectedSupplier);
       }
+      if (selectedMov && selectedMov !== "ALL") {
+        params.append("mov", selectedMov);
+      }
       if (selectedBrand && selectedBrand !== "ALL") {
         params.append("brand", selectedBrand);
       }
@@ -78,7 +82,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSupplier, selectedBrand, searchQuery, currentPage]);
+  }, [selectedSupplier, selectedMov, selectedBrand, searchQuery, currentPage]);
 
   useEffect(() => {
     fetchSuppliers();
@@ -112,6 +116,9 @@ export default function Home() {
     if (selectedSupplier && selectedSupplier !== "ALL") {
       params.append("supplierAllocationId", selectedSupplier);
     }
+    if (selectedMov && selectedMov !== "ALL") {
+      params.append("mov", selectedMov);
+    }
     window.location.href = `/api/export?${params.toString()}`;
   };
 
@@ -139,6 +146,11 @@ export default function Home() {
             setSelectedSupplier(sid);
             setCurrentPage(1);
           }}
+          selectedMov={selectedMov}
+          onSelectMov={(mov) => {
+            setSelectedMov(mov);
+            setCurrentPage(1);
+          }}
           orderTotal={currentSupplierOrderTotal}
         />
 
@@ -161,6 +173,10 @@ export default function Home() {
           availableBrands={availableBrands}
           onSelectSupplier={(sid) => {
             setSelectedSupplier(sid);
+            setCurrentPage(1);
+          }}
+          onSelectMov={(mov) => {
+            setSelectedMov(mov);
             setCurrentPage(1);
           }}
           orderQuantities={orderQuantities}

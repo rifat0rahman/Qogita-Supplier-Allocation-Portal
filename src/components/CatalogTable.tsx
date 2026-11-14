@@ -17,6 +17,7 @@ interface CatalogTableProps {
   onBrandChange: (brand: string) => void;
   availableBrands: string[];
   onSelectSupplier: (supplierId: string) => void;
+  onSelectMov?: (mov: string) => void;
   orderQuantities: Record<string, number>;
   onUpdateQuantity: (offerQid: string, qty: number) => void;
 }
@@ -33,6 +34,7 @@ export const CatalogTable: React.FC<CatalogTableProps> = ({
   onBrandChange,
   availableBrands,
   onSelectSupplier,
+  onSelectMov,
   orderQuantities,
   onUpdateQuantity,
 }) => {
@@ -119,7 +121,14 @@ export const CatalogTable: React.FC<CatalogTableProps> = ({
 
                     {/* Minimum Order Amount (MOV) Column */}
                     <td className="py-3 px-4 whitespace-nowrap font-medium text-slate-700">
-                      {formatUsd(item.mov, 0)}
+                      <button
+                        type="button"
+                        onClick={() => onSelectMov?.(String(Math.round(item.mov || 0)))}
+                        title="Click to filter by this MOV level"
+                        className="inline-flex items-center font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-200 transition-colors"
+                      >
+                        {formatUsd(item.mov, 0)}
+                      </button>
                     </td>
 
                     {/* GTIN / UPC */}
